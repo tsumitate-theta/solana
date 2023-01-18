@@ -61,13 +61,12 @@ pub struct ReplayResponse {
 
 /// Request for replay, sends responses back on this channel
 pub struct ReplayRequest {
-    pub tx_and_idx: (SanitizedTransaction, usize),
+    pub tx_and_idx: SanitizedTransaction,
     pub bank: Arc<Bank>,
     pub transaction_status_sender: Option<TransactionStatusSender>,
     pub replay_vote_sender: Option<ReplayVoteSender>,
     pub cost_capacity_meter: Arc<RwLock<BlockCostCapacityMeter>>,
     pub tx_cost: u64,
-    pub log_messages_bytes_limit: Option<usize>,
     pub entry_callback: Option<ProcessCallback>,
     pub batch_idx: Option<usize>,
 }
@@ -153,31 +152,29 @@ impl Replayer {
                                     replay_vote_sender,
                                     cost_capacity_meter,
                                     tx_cost,
-                                    log_messages_bytes_limit,
                                     entry_callback,
                                     batch_idx,
                                 },
                             )) => {
                                 let mut timings = ExecuteTimings::default();
 
-                                let txs = vec![tx_and_idx.0];
+                                let txs = vec![tx_and_idx];
                                 let mut batch =
                                     TransactionBatch::new(vec![Ok(())], &bank, Cow::Borrowed(&txs));
                                 batch.set_needs_unlock(false);
-                                let batch_with_idx = TransactionBatchWithIndexes {
-                                    batch,
-                                    transaction_indexes: vec![tx_and_idx.1],
-                                };
+                                // let batch_with_idx = TransactionBatchWithIndexes {
+                                //     batch,
+                                //     transaction_indexes: vec![tx_and_idx.1],
+                                // };
 
                                 let result = execute_batch(
-                                    &batch_with_idx,
+                                    &batch,
                                     &bank,
                                     transaction_status_sender.as_ref(),
                                     replay_vote_sender.as_ref(),
                                     &mut timings,
                                     cost_capacity_meter,
                                     tx_cost,
-                                    log_messages_bytes_limit,
                                 );
 
                                 if let Some(entry_callback) = entry_callback {
@@ -258,19 +255,14 @@ fn get_first_error(
 }
 
 fn execute_batch(
-    batch: &TransactionBatchWithIndexes,
+    batch: &TransactionBatch,
     bank: &Arc<Bank>,
     transaction_status_sender: Option<&TransactionStatusSender>,
     replay_vote_sender: Option<&ReplayVoteSender>,
     timings: &mut ExecuteTimings,
     cost_capacity_meter: Arc<RwLock<BlockCostCapacityMeter>>,
     tx_cost: u64,
-    log_messages_bytes_limit: Option<usize>,
 ) -> Result<()> {
-    let TransactionBatchWithIndexes {
-        batch,
-        transaction_indexes,
-    } = batch;
     let record_token_balances = transaction_status_sender.is_some();
 
     let mut mint_decimals: HashMap<Pubkey, u8> = HashMap::new();
