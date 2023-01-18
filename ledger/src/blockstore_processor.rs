@@ -297,7 +297,7 @@ fn execute_batches_internal(
     let mut indices_need_scheduling: Vec<usize> = dependency_graph
         .iter()
         .enumerate()
-        .filter_map(|(idx, indices)| indices.is_empty().then_some(idx))
+        .filter_map(|(idx, indices)| if indices.is_empty() { Some(idx) } else { None })
         .collect();
 
         while num_left_to_process > 0 {
