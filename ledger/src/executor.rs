@@ -45,7 +45,7 @@ pub type ProcessCallback = Arc<dyn Fn(&Bank) + Sync + Send>;
 // see: https://github.com/solana-labs/solana/pull/24853
 lazy_static! {
     static ref PAR_THREAD_POOL: ThreadPool = rayon::ThreadPoolBuilder::new()
-        .num_threads(get_thread_count())
+        .num_threads(num_cpus::get())
         .thread_name(|ix| format!("solBstoreProc{:02}", ix))
         .build()
         .unwrap();
@@ -349,35 +349,55 @@ fn execute_batch(
 pub fn build_dependency_graph(
     tx_account_locks_results: &[Result<TransactionAccountLocks>],
 ) -> Result<Vec<HashSet<usize>>> {
-    if let Some(err) = tx_account_locks_results.iter().find(|r| r.is_err()) {
-        err.clone()?;
-    }
-    let transaction_locks: Vec<_> = tx_account_locks_results
-        .iter()
-        .map(|r| r.as_ref().unwrap())
-        .collect();
+    // if let Some(err) = tx_account_locks_results.iter().find(|r| r.is_err()) {
+    //     err.clone()?;
+    // }
+    // let transaction_locks: Vec<_> = tx_account_locks_results
+    //     .iter()
+    //     .map(|r| r.as_ref().unwrap())
+    //     .collect();
 
     // build a map whose key is a pubkey + value is a sorted vector of all indices that
     // lock that account
     let mut indices_read_locking_account = HashMap::new();
     let mut indicies_write_locking_account = HashMap::new();
-    transaction_locks
-        .iter()
-        .enumerate()
-        .for_each(|(idx, tx_account_locks)| {
-            for account in &tx_account_locks.readonly {
-                indices_read_locking_account
-                    .entry(**account)
-                    .and_modify(|indices: &mut Vec<usize>| indices.push(idx))
-                    .or_insert_with(|| vec![idx]);
-            }
-            for account in &tx_account_locks.writable {
-                indicies_write_locking_account
-                    .entry(**account)
-                    .and_modify(|indices: &mut Vec<usize>| indices.push(idx))
-                    .or_insert_with(|| vec![idx]);
-            }
-        });
+    // transaction_locks
+    //     .iter()
+    //     .enumerate()
+    //     .for_each(|(idx, tx_account_locks)| {
+    //         for account in &tx_account_locks.readonly {
+    //             indices_read_locking_account
+    //                 .entry(**account)
+    //                 .and_modify(|indices: &mut Vec<usize>| indices.push(idx))
+    //                 .or_insert_with(|| vec![idx]);
+    //         }
+    //         for account in &tx_account_locks.writable {
+    //             indicies_write_locking_account
+    //                 .entry(**account)
+    //                 .and_modify(|indices: &mut Vec<usize>| indices.push(idx))
+    //                 .or_insert_with(|| vec![idx]);
+    //         }
+    //     });
+
+    let mut transaction_locks = Vec::with_capacity(tx_account_locks_results.len());
+    for (idx, tx_account_locks) in tx_account_locks_results.iter().enumerate() { 
+        let tx_account_locks = tx_account_locks.as_ref().map_err(|e| e.clone())?;
+
+        for account in &tx_account_locks.readonly {
+            indices_read_locking_account
+                .entry(**account)
+                .and_modify(|indices: &mut Vec<usize>| indices.push(idx))
+                .or_insert_with(|| vec![idx]);
+        }
+        for account in &tx_account_locks.writable {
+            indicies_write_locking_account
+                .entry(**account)
+                .and_modify(|indices: &mut Vec<usize>| indices.push(idx))
+                .or_insert_with(|| vec![idx]);
+        }
+
+        transaction_locks.push(tx_account_locks);
+    }
 
     Ok(PAR_THREAD_POOL.install(|| {
         transaction_locks
