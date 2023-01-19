@@ -45,7 +45,7 @@ pub type ProcessCallback = Arc<dyn Fn(&Bank) + Sync + Send>;
 // see: https://github.com/solana-labs/solana/pull/24853
 lazy_static! {
     static ref PAR_THREAD_POOL: ThreadPool = rayon::ThreadPoolBuilder::new()
-        .num_threads(num_cpus::get())
+        .num_threads(get_thread_count())
         .thread_name(|ix| format!("solBstoreProc{:02}", ix))
         .build()
         .unwrap();
