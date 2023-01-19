@@ -282,7 +282,6 @@ fn execute_batches_internal(
     let mut processing_state =
         vec![ExecutionState::Blocked; batches.len()];
     let mut transaction_results = vec![Ok(()); batches.len()];
-    let mut new_timings = vec![ExecuteTimings::default(); batches.len()];
 
     let mut execute_batches_elapsed = Measure::start("execute_batches_elapsed");
 
@@ -331,14 +330,13 @@ fn execute_batches_internal(
                     .for_each(
                         |ReplayResponse {
                              result,
-                             timing: execute_timing,
+                             timing: _,
                              batch_idx,
                          }| {
                             let batch_idx = batch_idx.unwrap();
     
                             processing_state[batch_idx] = ExecutionState::Processed;
                             transaction_results[batch_idx] = result;
-                            new_timings[batch_idx] = execute_timing;
     
                             num_left_to_process -= 1;
                         },
@@ -411,9 +409,9 @@ fn execute_batches_internal(
 
     timings.saturating_add_in_place(ExecuteTimingType::TotalBatchesLen, batches.len() as u64);
     timings.saturating_add_in_place(ExecuteTimingType::NumExecuteBatches, 1);
-    for timing in new_timings {
-        timings.accumulate(&timing);
-    }
+    // for timing in new_timings {
+    //     timings.accumulate(&timing);
+    // }
 
     // first_err(&results)
 
