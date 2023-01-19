@@ -111,157 +111,157 @@ enum ExecutionState {
     Processed,
 }
 
-thread_local!(static PAR_THREAD_POOL: RefCell<ThreadPool> = RefCell::new(rayon::ThreadPoolBuilder::new()
-                    .num_threads(get_thread_count())
-                    .thread_name(|ix| format!("blockstore_processor_{}", ix))
-                    .build()
-                    .unwrap())
-);
+// thread_local!(static PAR_THREAD_POOL: RefCell<ThreadPool> = RefCell::new(rayon::ThreadPoolBuilder::new()
+//                     .num_threads(get_thread_count())
+//                     .thread_name(|ix| format!("blockstore_processor_{}", ix))
+//                     .build()
+//                     .unwrap())
+// );
 
-fn first_err(results: &[Result<()>]) -> Result<()> {
-    for r in results {
-        if r.is_err() {
-            return r.clone();
-        }
-    }
-    Ok(())
-}
+// fn first_err(results: &[Result<()>]) -> Result<()> {
+//     for r in results {
+//         if r.is_err() {
+//             return r.clone();
+//         }
+//     }
+//     Ok(())
+// }
 
-// Includes transaction signature for unit-testing
-fn get_first_error(
-    batch: &TransactionBatch,
-    fee_collection_results: Vec<Result<()>>,
-) -> Option<(Result<()>, Signature)> {
-    let mut first_err = None;
-    for (result, transaction) in fee_collection_results
-        .iter()
-        .zip(batch.sanitized_transactions())
-    {
-        if let Err(ref err) = result {
-            if first_err.is_none() {
-                first_err = Some((result.clone(), *transaction.signature()));
-            }
-            warn!(
-                "Unexpected validator error: {:?}, transaction: {:?}",
-                err, transaction
-            );
-            datapoint_error!(
-                "validator_process_entry_error",
-                (
-                    "error",
-                    format!("error: {:?}, transaction: {:?}", err, transaction),
-                    String
-                )
-            );
-        }
-    }
-    first_err
-}
+// // Includes transaction signature for unit-testing
+// fn get_first_error(
+//     batch: &TransactionBatch,
+//     fee_collection_results: Vec<Result<()>>,
+// ) -> Option<(Result<()>, Signature)> {
+//     let mut first_err = None;
+//     for (result, transaction) in fee_collection_results
+//         .iter()
+//         .zip(batch.sanitized_transactions())
+//     {
+//         if let Err(ref err) = result {
+//             if first_err.is_none() {
+//                 first_err = Some((result.clone(), *transaction.signature()));
+//             }
+//             warn!(
+//                 "Unexpected validator error: {:?}, transaction: {:?}",
+//                 err, transaction
+//             );
+//             datapoint_error!(
+//                 "validator_process_entry_error",
+//                 (
+//                     "error",
+//                     format!("error: {:?}, transaction: {:?}", err, transaction),
+//                     String
+//                 )
+//             );
+//         }
+//     }
+//     first_err
+// }
 
-fn aggregate_total_execution_units(execute_timings: &ExecuteTimings) -> u64 {
-    let mut execute_cost_units: u64 = 0;
-    for (program_id, timing) in &execute_timings.details.per_program_timings {
-        if timing.count < 1 {
-            continue;
-        }
-        execute_cost_units =
-            execute_cost_units.saturating_add(timing.accumulated_units / timing.count as u64);
-        trace!("aggregated execution cost of {:?} {:?}", program_id, timing);
-    }
-    execute_cost_units
-}
+// fn aggregate_total_execution_units(execute_timings: &ExecuteTimings) -> u64 {
+//     let mut execute_cost_units: u64 = 0;
+//     for (program_id, timing) in &execute_timings.details.per_program_timings {
+//         if timing.count < 1 {
+//             continue;
+//         }
+//         execute_cost_units =
+//             execute_cost_units.saturating_add(timing.accumulated_units / timing.count as u64);
+//         trace!("aggregated execution cost of {:?} {:?}", program_id, timing);
+//     }
+//     execute_cost_units
+// }
 
-fn execute_batch(
-    batch: &TransactionBatch,
-    bank: &Arc<Bank>,
-    transaction_status_sender: Option<&TransactionStatusSender>,
-    replay_vote_sender: Option<&ReplayVoteSender>,
-    timings: &mut ExecuteTimings,
-    cost_capacity_meter: Arc<RwLock<BlockCostCapacityMeter>>,
-) -> Result<()> {
-    let record_token_balances = transaction_status_sender.is_some();
+// fn execute_batch(
+//     batch: &TransactionBatch,
+//     bank: &Arc<Bank>,
+//     transaction_status_sender: Option<&TransactionStatusSender>,
+//     replay_vote_sender: Option<&ReplayVoteSender>,
+//     timings: &mut ExecuteTimings,
+//     cost_capacity_meter: Arc<RwLock<BlockCostCapacityMeter>>,
+// ) -> Result<()> {
+//     let record_token_balances = transaction_status_sender.is_some();
 
-    let mut mint_decimals: HashMap<Pubkey, u8> = HashMap::new();
+//     let mut mint_decimals: HashMap<Pubkey, u8> = HashMap::new();
 
-    let pre_token_balances = if record_token_balances {
-        collect_token_balances(bank, batch, &mut mint_decimals)
-    } else {
-        vec![]
-    };
+//     let pre_token_balances = if record_token_balances {
+//         collect_token_balances(bank, batch, &mut mint_decimals)
+//     } else {
+//         vec![]
+//     };
 
-    let pre_process_units: u64 = aggregate_total_execution_units(timings);
+//     let pre_process_units: u64 = aggregate_total_execution_units(timings);
 
-    let (tx_results, balances) = batch.bank().load_execute_and_commit_transactions(
-        batch,
-        MAX_PROCESSING_AGE,
-        transaction_status_sender.is_some(),
-        transaction_status_sender.is_some(),
-        transaction_status_sender.is_some(),
-        timings,
-    );
+//     let (tx_results, balances) = batch.bank().load_execute_and_commit_transactions(
+//         batch,
+//         MAX_PROCESSING_AGE,
+//         transaction_status_sender.is_some(),
+//         transaction_status_sender.is_some(),
+//         transaction_status_sender.is_some(),
+//         timings,
+//     );
 
-    if bank
-        .feature_set
-        .is_active(&feature_set::gate_large_block::id())
-    {
-        let execution_cost_units = aggregate_total_execution_units(timings) - pre_process_units;
-        let remaining_block_cost_cap = cost_capacity_meter
-            .write()
-            .unwrap()
-            .accumulate(execution_cost_units);
+//     if bank
+//         .feature_set
+//         .is_active(&feature_set::gate_large_block::id())
+//     {
+//         let execution_cost_units = aggregate_total_execution_units(timings) - pre_process_units;
+//         let remaining_block_cost_cap = cost_capacity_meter
+//             .write()
+//             .unwrap()
+//             .accumulate(execution_cost_units);
 
-        debug!(
-            "bank {} executed a batch, number of transactions {}, total execute cu {}, remaining block cost cap {}",
-            bank.slot(),
-            batch.sanitized_transactions().len(),
-            execution_cost_units,
-            remaining_block_cost_cap,
-        );
+//         debug!(
+//             "bank {} executed a batch, number of transactions {}, total execute cu {}, remaining block cost cap {}",
+//             bank.slot(),
+//             batch.sanitized_transactions().len(),
+//             execution_cost_units,
+//             remaining_block_cost_cap,
+//         );
 
-        if remaining_block_cost_cap == 0_u64 {
-            return Err(TransactionError::WouldExceedMaxBlockCostLimit);
-        }
-    }
+//         if remaining_block_cost_cap == 0_u64 {
+//             return Err(TransactionError::WouldExceedMaxBlockCostLimit);
+//         }
+//     }
 
-    bank_utils::find_and_send_votes(
-        batch.sanitized_transactions(),
-        &tx_results,
-        replay_vote_sender,
-    );
+//     bank_utils::find_and_send_votes(
+//         batch.sanitized_transactions(),
+//         &tx_results,
+//         replay_vote_sender,
+//     );
 
-    let TransactionResults {
-        fee_collection_results,
-        execution_results,
-        rent_debits,
-        ..
-    } = tx_results;
+//     let TransactionResults {
+//         fee_collection_results,
+//         execution_results,
+//         rent_debits,
+//         ..
+//     } = tx_results;
 
-    check_accounts_data_size(bank, &execution_results)?;
+//     check_accounts_data_size(bank, &execution_results)?;
 
-    if let Some(transaction_status_sender) = transaction_status_sender {
-        let transactions = batch.sanitized_transactions().to_vec();
-        let post_token_balances = if record_token_balances {
-            collect_token_balances(bank, batch, &mut mint_decimals)
-        } else {
-            vec![]
-        };
+//     if let Some(transaction_status_sender) = transaction_status_sender {
+//         let transactions = batch.sanitized_transactions().to_vec();
+//         let post_token_balances = if record_token_balances {
+//             collect_token_balances(bank, batch, &mut mint_decimals)
+//         } else {
+//             vec![]
+//         };
 
-        let token_balances =
-            TransactionTokenBalancesSet::new(pre_token_balances, post_token_balances);
+//         let token_balances =
+//             TransactionTokenBalancesSet::new(pre_token_balances, post_token_balances);
 
-        transaction_status_sender.send_transaction_status_batch(
-            bank.clone(),
-            transactions,
-            execution_results,
-            balances,
-            token_balances,
-            rent_debits,
-        );
-    }
+//         transaction_status_sender.send_transaction_status_batch(
+//             bank.clone(),
+//             transactions,
+//             execution_results,
+//             balances,
+//             token_balances,
+//             rent_debits,
+//         );
+//     }
 
-    let first_err = get_first_error(batch, fee_collection_results);
-    first_err.map(|(result, _)| result).unwrap_or(Ok(()))
-}
+//     let first_err = get_first_error(batch, fee_collection_results);
+//     first_err.map(|(result, _)| result).unwrap_or(Ok(()))
+// }
 
 fn execute_batches_internal(
     bank: &Arc<Bank>,
@@ -804,12 +804,12 @@ pub fn process_blockstore_from_root(
     pruned_banks_receiver: DroppedSlotsReceiver,
 ) -> result::Result<Option<Slot>, BlockstoreProcessorError> {
     if let Some(num_threads) = opts.override_num_threads {
-        PAR_THREAD_POOL.with(|pool| {
-            *pool.borrow_mut() = rayon::ThreadPoolBuilder::new()
-                .num_threads(num_threads)
-                .build()
-                .unwrap()
-        });
+        // PAR_THREAD_POOL.with(|pool| {
+        //     *pool.borrow_mut() = rayon::ThreadPoolBuilder::new()
+        //         .num_threads(num_threads)
+        //         .build()
+        //         .unwrap()
+        // });
     }
 
     // Starting slot must be a root, and thus has no parents
