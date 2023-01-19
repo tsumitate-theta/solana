@@ -63,6 +63,7 @@ impl ReplaySlotStats {
                 i64
             ),
             ("replay_time", self.replay_elapsed as i64, i64),
+            ("planning_elapsed", self.planning_elapsed as i64, i64),
             (
                 "replay_total_elapsed",
                 self.started.elapsed().as_micros() as i64,
