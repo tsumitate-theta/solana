@@ -1670,8 +1670,9 @@ impl ReplayStage {
         // All errors must lead to marking the slot as dead, otherwise,
         // the `check_slot_agrees_with_cluster()` called by `replay_active_banks()`
         // will break!
+        let start = Instant::now();
         let mut did_process_entries = true;
-        while did_process_entries {
+        while did_process_entries && start.elapsed() < Duration::from_millis(400) {
             did_process_entries = blockstore_processor::confirm_slot(
                 blockstore,
                 bank,
